@@ -3,8 +3,10 @@ module UrlShortner
 go 1.26.5
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.5.4
+	github.com/spaolacci/murmur3 v1.1.0
 	github.com/spf13/viper v1.21.0
 )
 
