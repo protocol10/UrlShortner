@@ -1,0 +1,10 @@
+shortener:
+  hashing_algorithm: "sha256"
+  max_char_limit: 8
+
+database:
+  host: "127.0.0.1"
+  port: 5432
+  user: "your_database_username"
+  password: "your_database_password"
+  name: "url_shortner_app"
