@@ -1,0 +1,19 @@
+{
+  "changelists": [
+    {
+      "name": "Default",
+      "files": [
+        "config.yaml",
+        "go.mod",
+        "go.sum",
+        "main.go",
+        "Makefile",
+        "config/config.go",
+        "migrations/000001_create_url_shortener_table.down.sql",
+        "migrations/000001_create_url_shortener_table.up.sql",
+        ".vscode/changelists.json"
+      ]
+    }
+  ],
+  "active": "Default"
+}
