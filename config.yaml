@@ -1,0 +1,3 @@
+shortener:
+  hashing_algorithm: "sha256"
+  max_char_limit: 8
