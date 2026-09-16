@@ -91,5 +91,5 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	jsonBytes, _ := json.Marshal(data)
-	w.Write(jsonBytes)
+	_, _ = w.Write(jsonBytes)
 }
