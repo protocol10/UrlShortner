@@ -8,17 +8,24 @@ import (
 	"strings"
 	"testing"
 
+	"UrlShortner/internal/repository"
+
 	"github.com/stretchr/testify/assert"
 )
 
 // 1. Create a Mock Service that implements service.URLService
 type MockURLService struct {
 	MockShortCode string
+	MockLongURL   string
 	MockError     error
 }
 
 func (m *MockURLService) ShortenURL(ctx context.Context, longURL string) (string, error) {
 	return m.MockShortCode, m.MockError
+}
+
+func (m *MockURLService) GetLongURL(ctx context.Context, shortCode string) (string, error) {
+	return m.MockLongURL, m.MockError
 }
 
 // 2. Our first test function
@@ -100,5 +107,62 @@ func TestHandlerShorten_InternalServerError(t *testing.T) {
 
 	// 6. Optional: Assert the response body contains the expected short code
 	expectedBody := `{"error":"internal error"}`
+	assert.Equal(t, expectedBody, rr.Body.String())
+}
+
+func TestHandleGet_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/googl1", nil)
+	rr := httptest.NewRecorder()
+
+	mockSvc := &MockURLService{}
+	h := NewURLHandler(mockSvc)
+
+	h.HandleGet(rr, req)
+	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+}
+
+func TestHandleGet_Success(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/shorten?short_code=googl1", nil)
+	rr := httptest.NewRecorder()
+
+	mockSvc := &MockURLService{
+		MockLongURL: "https://www.google.com",
+		MockError:   nil,
+	}
+
+	h := NewURLHandler(mockSvc)
+	h.HandleGet(rr, req)
+
+	assert.Equal(t, http.StatusFound, rr.Code)
+	assert.Equal(t, "https://www.google.com", rr.Header().Get("Location"))
+}
+
+func TestHandleGet_NotFound(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/shorten?short_code=unknown", nil)
+	rr := httptest.NewRecorder()
+
+	mockSvc := &MockURLService{
+		MockError: repository.ErrNotFound,
+	}
+
+	h := NewURLHandler(mockSvc)
+	h.HandleGet(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	expectedBody := `{"error":"Short code not found"}`
+	assert.Equal(t, expectedBody, rr.Body.String())
+}
+
+func TestHandleGet_MissingShortCode(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/shorten", nil)
+	rr := httptest.NewRecorder()
+
+	mockSvc := &MockURLService{}
+	h := NewURLHandler(mockSvc)
+
+	h.HandleGet(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	expectedBody := `{"error":"Short code is required"}`
 	assert.Equal(t, expectedBody, rr.Body.String())
 }

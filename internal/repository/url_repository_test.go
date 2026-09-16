@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/stretchr/testify/assert"
@@ -80,6 +81,81 @@ func Test_postgresURLRepository_Insert(t *testing.T) {
 			}
 
 			// Ensure all expectations were met
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func Test_postgresURLRepository_GetByShortCode(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer mock.Close()
+
+	repo := NewPostgresURLRepository(mock)
+
+	tests := []struct {
+		name        string
+		shortCode   string
+		mockSetup   func()
+		wantLongURL string
+		wantErr     error
+	}{
+		{
+			name:      "Success",
+			shortCode: "googl1",
+			mockSetup: func() {
+				rows := pgxmock.NewRows([]string{"url"}).AddRow("https://www.google.com")
+				mock.ExpectQuery("SELECT url FROM url_shortener WHERE short_code = \\$1").
+					WithArgs("googl1").
+					WillReturnRows(rows)
+			},
+			wantLongURL: "https://www.google.com",
+			wantErr:     nil,
+		},
+		{
+			name:      "Not Found",
+			shortCode: "nonexistent",
+			mockSetup: func() {
+				mock.ExpectQuery("SELECT url FROM url_shortener WHERE short_code = \\$1").
+					WithArgs("nonexistent").
+					WillReturnError(pgx.ErrNoRows)
+			},
+			wantLongURL: "",
+			wantErr:     ErrNotFound,
+		},
+		{
+			name:      "Database Error",
+			shortCode: "dberr",
+			mockSetup: func() {
+				mock.ExpectQuery("SELECT url FROM url_shortener WHERE short_code = \\$1").
+					WithArgs("dberr").
+					WillReturnError(errors.New("db error"))
+			},
+			wantLongURL: "",
+			wantErr:     errors.New("db error"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.mockSetup()
+
+			got, err := repo.GetByShortCode(context.Background(), tt.shortCode)
+
+			if tt.wantErr != nil {
+				assert.Error(t, err)
+				if errors.Is(tt.wantErr, ErrNotFound) {
+					assert.Equal(t, ErrNotFound, err)
+				} else {
+					assert.EqualError(t, err, tt.wantErr.Error())
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantLongURL, got)
+			}
+
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
