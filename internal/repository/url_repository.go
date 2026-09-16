@@ -26,7 +26,7 @@ func NewPostgresURLRepository(db *pgxpool.Pool) URLRepository {
 
 func (r *postgresURLRepository) Insert(ctx context.Context, longURL, shortCode string) error {
 	query := `
-		INSERT INTO url_shortener (long_url, short_code)
+		INSERT INTO url_shortener (url, short_code)
 		VALUES ($1, $2)
 	`
 	_, err := r.db.Exec(ctx, query, longURL, shortCode)
