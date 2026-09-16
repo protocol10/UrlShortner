@@ -11,15 +11,31 @@ type Shortener interface {
 
 // Config represents the parameters needed to initialize a shortener.
 type Config struct {
-	Approach         string // "hash" or "random"
-	HashingAlgorithm string // "md5", "sha256", "fnv", "murmur", "xxhash"
-	MaxCharLimit     int
+	Approach              string // "hash", "random", or "counter"
+	HashingAlgorithm      string // "md5", "sha256", "fnv", "murmur", "xxhash"
+	MaxCharLimit          int
+	CounterClient         CounterClient
+	CounterKey            string
+	ObfuscationMultiplier uint64
+	ObfuscationXOR        uint64
 }
 
 // New creates and returns a Shortener based on the provided configuration.
 func New(cfg Config) (Shortener, error) {
 	if cfg.Approach == "random" {
 		return NewRandomShortener(cfg.MaxCharLimit), nil
+	}
+
+	if cfg.Approach == "counter" {
+		if cfg.CounterClient == nil {
+			return nil, fmt.Errorf("counter client is required for 'counter' approach")
+		}
+		return NewCounterShortener(cfg.CounterClient, CounterShortenerConfig{
+			CounterKey:   cfg.CounterKey,
+			Multiplier:   cfg.ObfuscationMultiplier,
+			XORMask:      cfg.ObfuscationXOR,
+			MaxCharLimit: cfg.MaxCharLimit,
+		}), nil
 	}
 
 	if cfg.Approach == "hash" {
