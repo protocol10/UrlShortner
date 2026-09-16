@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -16,11 +15,15 @@ type URLRepository interface {
 	Insert(ctx context.Context, longURL, shortCode string) error
 }
 
-type postgresURLRepository struct {
-	db *pgxpool.Pool
+type DBExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
-func NewPostgresURLRepository(db *pgxpool.Pool) URLRepository {
+type postgresURLRepository struct {
+	db DBExecer
+}
+
+func NewPostgresURLRepository(db DBExecer) URLRepository {
 	return &postgresURLRepository{db: db}
 }
 
