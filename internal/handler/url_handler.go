@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
+	"UrlShortner/internal/repository"
 	"UrlShortner/internal/service"
 )
 
@@ -22,6 +24,11 @@ type ShortenRequest struct {
 type ShortenResponse struct {
 	ShortCode string `json:"short_code,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+type GetURLResponse struct {
+	LongURL string `json:"long_url,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 func (h *URLHandler) HandleShorten(w http.ResponseWriter, r *http.Request) {
@@ -51,9 +58,38 @@ func (h *URLHandler) HandleShorten(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ShortenResponse{ShortCode: shortCode})
 }
 
+func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	shortCode := r.PathValue("shortCode")
+	if shortCode == "" {
+		shortCode = r.URL.Query().Get("short_code")
+	}
+
+	if shortCode == "" {
+		writeJSON(w, http.StatusBadRequest, GetURLResponse{Error: "Short code is required"})
+		return
+	}
+
+	longURL, err := h.service.GetLongURL(r.Context(), shortCode)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, GetURLResponse{Error: "Short code not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, GetURLResponse{Error: err.Error()})
+		return
+	}
+
+	http.Redirect(w, r, longURL, http.StatusFound)
+}
+
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	jsonBytes, _ := json.Marshal(data)
-	w.Write(jsonBytes)
+	_, _ = w.Write(jsonBytes)
 }

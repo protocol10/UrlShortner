@@ -19,12 +19,17 @@ func (m *MockShortener) Shorten(longURL string) (string, error) {
 }
 
 type MockURLRepository struct {
-	MockError error
+	MockError   error
+	MockLongURL string
 }
 
 // Implement the interface method
 func (m *MockURLRepository) Insert(ctx context.Context, longURL, shortCode string) error {
 	return m.MockError // Just return whatever we tell the mock to return in the test!
+}
+
+func (m *MockURLRepository) GetByShortCode(ctx context.Context, shortCode string) (string, error) {
+	return m.MockLongURL, m.MockError
 }
 
 func Test_urlService_ShortenURL(t *testing.T) {
@@ -80,6 +85,62 @@ func Test_urlService_ShortenURL(t *testing.T) {
 			}
 			assert.Equal(t, tt.want, got)
 			assert.Equal(t, tt.wantErr, gotErr != nil)
+		})
+	}
+}
+
+func Test_urlService_GetLongURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		shortCode   string
+		mockLongURL string
+		mockErr     error
+		want        string
+		wantErr     bool
+	}{
+		{
+			name:        "Success",
+			shortCode:   "googl1",
+			mockLongURL: "https://www.google.com",
+			mockErr:     nil,
+			want:        "https://www.google.com",
+			wantErr:     false,
+		},
+		{
+			name:        "Empty short code",
+			shortCode:   "",
+			mockLongURL: "",
+			mockErr:     nil,
+			want:        "",
+			wantErr:     true,
+		},
+		{
+			name:        "Repo error",
+			shortCode:   "notfound",
+			mockLongURL: "",
+			mockErr:     errors.New("not found"),
+			want:        "",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRepo := &MockURLRepository{
+				MockLongURL: tt.mockLongURL,
+				MockError:   tt.mockErr,
+			}
+			mockShortener := &MockShortener{}
+
+			svc := NewURLService(mockShortener, mockRepo)
+
+			got, err := svc.GetLongURL(context.Background(), tt.shortCode)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
 		})
 	}
 }

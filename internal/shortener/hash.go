@@ -49,7 +49,7 @@ type MurmurHasher struct{}
 
 func (h *MurmurHasher) Hash(input string) []byte {
 	hasher := murmur3.New64()
-	hasher.Write([]byte(input))
+	_, _ = hasher.Write([]byte(input))
 	hashBucket := make([]byte, 0, 8)
 
 	return hasher.Sum(hashBucket)
@@ -59,7 +59,7 @@ type XXHasher struct{}
 
 func (h *XXHasher) Hash(input string) []byte {
 	hasher := xxhash.New()
-	hasher.Write([]byte(input))
+	_, _ = hasher.Write([]byte(input))
 	hashBucket := make([]byte, 0, 8)
 
 	return hasher.Sum(hashBucket)

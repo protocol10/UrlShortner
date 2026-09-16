@@ -11,6 +11,7 @@ import (
 
 type URLService interface {
 	ShortenURL(ctx context.Context, longURL string) (string, error)
+	GetLongURL(ctx context.Context, shortCode string) (string, error)
 }
 
 type urlService struct {
@@ -59,4 +60,11 @@ func (s *urlService) ShortenURL(ctx context.Context, longURL string) (string, er
 	}
 
 	return "", fmt.Errorf("failed to generate unique short code after %d attempts", maxRetries)
+}
+
+func (s *urlService) GetLongURL(ctx context.Context, shortCode string) (string, error) {
+	if shortCode == "" {
+		return "", fmt.Errorf("short code is required")
+	}
+	return s.repo.GetByShortCode(ctx, shortCode)
 }

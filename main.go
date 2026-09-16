@@ -65,7 +65,7 @@ func main() {
 	if err := runMigrations(db); err != nil {
 		log.Fatalf("Migration failed: %v", err)
 	}
-	db.Close() // Close migration connection
+	_ = db.Close() // Close migration connection
 
 	// ---------------------------------------------------------
 	// 2. Application Connection Pool Setup
@@ -110,7 +110,8 @@ func main() {
 	// 4. Start HTTP Server
 	// ---------------------------------------------------------
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/shorten", urlHandler.HandleShorten)
+	mux.HandleFunc("POST /api/v1/shorten", urlHandler.HandleShorten)
+	mux.HandleFunc("GET /api/v1/{shortCode}", urlHandler.HandleGet)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("Server starting on http://localhost%s", addr)

@@ -80,7 +80,7 @@ func TestAPI_ShortenURL(t *testing.T) {
 
 	err = m.Up()
 	require.NoError(t, err, "failed to run migrations")
-	db.Close() // close migration connection
+	_ = db.Close() // close migration connection
 
 	// 3. Initialize the Application
 	poolConfig, err := pgxpool.ParseConfig(connStr)
@@ -103,20 +103,22 @@ func TestAPI_ShortenURL(t *testing.T) {
 
 	// Start HTTP test server
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/shorten", urlHandler.HandleShorten)
+	mux.HandleFunc("POST /api/v1/shorten", urlHandler.HandleShorten)
+	mux.HandleFunc("GET /api/v1/{shortCode}", urlHandler.HandleGet)
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
 	// 4. Test the API
 
 	// Test Case 1: Shorten a valid URL
+	originalURL := "https://www.github.com/protocol10"
 	reqBody := map[string]string{
-		"url": "https://www.github.com/protocol10",
+		"url": originalURL,
 	}
 	bodyBytes, _ := json.Marshal(reqBody)
 	resp, err := http.Post(ts.URL+"/api/v1/shorten", "application/json", bytes.NewBuffer(bodyBytes))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -128,18 +130,31 @@ func TestAPI_ShortenURL(t *testing.T) {
 
 	assert.NotEmpty(t, respBody.ShortCode)
 
-	// Verify it was actually inserted into the DB!
-	var count int
-	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM url_shortener WHERE short_code = $1", respBody.ShortCode).Scan(&count)
+	// Test Case 2: Retrieve original URL using GET /{shortCode} (expects HTTP 302 Found redirect)
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	getResp, err := client.Get(fmt.Sprintf("%s/api/v1/%s", ts.URL, respBody.ShortCode))
 	require.NoError(t, err)
-	assert.Equal(t, 1, count)
+	defer func() { _ = getResp.Body.Close() }()
 
-	// Test Case 2: Missing URL
+	assert.Equal(t, http.StatusFound, getResp.StatusCode)
+	assert.Equal(t, originalURL, getResp.Header.Get("Location"))
+
+	// Test Case 3: GET with unknown short code returns 404
+	notFoundResp, err := http.Get(ts.URL + "/api/v1/unknown123")
+	require.NoError(t, err)
+	defer func() { _ = notFoundResp.Body.Close() }()
+	assert.Equal(t, http.StatusNotFound, notFoundResp.StatusCode)
+
+	// Test Case 4: Missing URL on POST returns 400
 	reqBody = map[string]string{}
 	bodyBytes, _ = json.Marshal(reqBody)
 	resp2, err := http.Post(ts.URL+"/api/v1/shorten", "application/json", bytes.NewBuffer(bodyBytes))
 	require.NoError(t, err)
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	assert.Equal(t, http.StatusBadRequest, resp2.StatusCode)
 }
