@@ -5,8 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/http"
 
 	"UrlShortner/config"
+	"UrlShortner/internal/handler"
+	"UrlShortner/internal/repository"
+	"UrlShortner/internal/service"
+	"UrlShortner/internal/shortener"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -42,39 +47,33 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Create Postgres Data Source Name (DSN) using the robust URL format
+	// ---------------------------------------------------------
+	// 1. Run Migrations
+	// ---------------------------------------------------------
 	dbConnectionStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name)
 
 	db, err := sql.Open("pgx", dbConnectionStr)
 	if err != nil {
-		log.Fatalf("Could not open database connection: %v", err)
+		log.Fatalf("Could not open database connection for migrations: %v", err)
 	}
-	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("Could not ping database (check if running and credentials are correct): %v", err)
+		log.Fatalf("Could not ping database: %v", err)
 	}
-	log.Println("Connected to PostgreSQL successfully")
 
-	// Run migrations
 	if err := runMigrations(db); err != nil {
 		log.Fatalf("Migration failed: %v", err)
 	}
-
-	// Close the *sql.DB connection since we only needed it for migrations
-	db.Close()
+	db.Close() // Close migration connection
 
 	// ---------------------------------------------------------
-	// Application Connection Pool Setup (pgxpool)
+	// 2. Application Connection Pool Setup
 	// ---------------------------------------------------------
 	poolConfig, err := pgxpool.ParseConfig(dbConnectionStr)
 	if err != nil {
 		log.Fatalf("Unable to parse database config for pool: %v", err)
 	}
-
-	// You can configure pool settings here (e.g. max connections)
-	// poolConfig.MaxConns = 10
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
@@ -87,7 +86,36 @@ func main() {
 	}
 	log.Println("pgx connection pool established successfully!")
 
-	fmt.Println("URL Shortener initialized!")
-	fmt.Printf("Using Algorithm: %s\n", cfg.Shortener.HashingAlgorithm)
-	fmt.Printf("Max Character Limit: %d\n", cfg.Shortener.MaxCharLimit)
+	// ---------------------------------------------------------
+	// 3. Initialize Strategies and Layers
+	// ---------------------------------------------------------
+	// Create Strategy
+	shortenerStrategy, err := shortener.New(shortener.Config{
+		Approach:         cfg.Shortener.Approach,
+		HashingAlgorithm: cfg.Shortener.HashingAlgorithm,
+		MaxCharLimit:     cfg.Shortener.MaxCharLimit,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize shortener strategy: %v", err)
+	}
+	log.Printf("Shortener strategy initialized: Approach=%s, Algorithm=%s, Limit=%d",
+		cfg.Shortener.Approach, cfg.Shortener.HashingAlgorithm, cfg.Shortener.MaxCharLimit)
+
+	// Dependency Injection: Repo -> Service -> Handler
+	urlRepo := repository.NewPostgresURLRepository(pool)
+	urlService := service.NewURLService(shortenerStrategy, urlRepo)
+	urlHandler := handler.NewURLHandler(urlService)
+
+	// ---------------------------------------------------------
+	// 4. Start HTTP Server
+	// ---------------------------------------------------------
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/shorten", urlHandler.HandleShorten)
+
+	addr := fmt.Sprintf(":%d", cfg.Server.Port)
+	log.Printf("Server starting on http://localhost%s", addr)
+
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
 }

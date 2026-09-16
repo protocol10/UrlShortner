@@ -1,0 +1,145 @@
+package integration
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+
+	"UrlShortner/internal/handler"
+	"UrlShortner/internal/repository"
+	"UrlShortner/internal/service"
+	"UrlShortner/internal/shortener"
+
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+)
+
+func TestAPI_ShortenURL(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. Spin up a Postgres container
+	dbName := "urlshortener"
+	dbUser := "postgres"
+	dbPassword := "postgres"
+
+	pgContainer, err := tcpostgres.Run(ctx,
+		"postgres:16-alpine",
+		tcpostgres.WithDatabase(dbName),
+		tcpostgres.WithUsername(dbUser),
+		tcpostgres.WithPassword(dbPassword),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(5*time.Second),
+		),
+	)
+	require.NoError(t, err, "failed to start postgres container")
+
+	// Ensure the container is cleaned up when the test finishes
+	defer func() {
+		if err := pgContainer.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate pgContainer: %s", err)
+		}
+	}()
+
+	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+
+	// 2. Run Migrations
+	db, err := sql.Open("pgx", connStr)
+	require.NoError(t, err)
+
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	require.NoError(t, err)
+
+	// Find absolute path to migrations folder
+	_, b, _, _ := runtime.Caller(0)
+	basepath := filepath.Dir(b)
+	migrationsPath := filepath.Join(basepath, "..", "..", "migrations")
+
+	m, err := migrate.NewWithDatabaseInstance(
+		fmt.Sprintf("file://%s", migrationsPath),
+		"postgres", driver)
+	require.NoError(t, err)
+
+	err = m.Up()
+	require.NoError(t, err, "failed to run migrations")
+	db.Close() // close migration connection
+
+	// 3. Initialize the Application
+	poolConfig, err := pgxpool.ParseConfig(connStr)
+	require.NoError(t, err)
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	shortenerStrategy, err := shortener.New(shortener.Config{
+		Approach:         "hash",
+		HashingAlgorithm: "xxhash",
+		MaxCharLimit:     8,
+	})
+	require.NoError(t, err)
+
+	// Wire it all up
+	urlRepo := repository.NewPostgresURLRepository(pool)
+	urlService := service.NewURLService(shortenerStrategy, urlRepo)
+	urlHandler := handler.NewURLHandler(urlService)
+
+	// Start HTTP test server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/shorten", urlHandler.HandleShorten)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// 4. Test the API
+
+	// Test Case 1: Shorten a valid URL
+	reqBody := map[string]string{
+		"url": "https://www.github.com/protocol10",
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(ts.URL+"/api/v1/shorten", "application/json", bytes.NewBuffer(bodyBytes))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var respBody struct {
+		ShortCode string `json:"short_code"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, respBody.ShortCode)
+
+	// Verify it was actually inserted into the DB!
+	var count int
+	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM url_shortener WHERE short_code = $1", respBody.ShortCode).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	// Test Case 2: Missing URL
+	reqBody = map[string]string{}
+	bodyBytes, _ = json.Marshal(reqBody)
+	resp2, err := http.Post(ts.URL+"/api/v1/shorten", "application/json", bytes.NewBuffer(bodyBytes))
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp2.StatusCode)
+}

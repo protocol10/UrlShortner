@@ -1,6 +1,10 @@
+server:
+  port: 8080
+
 shortener:
-  hashing_algorithm: "sha256"
-  max_char_limit: 8
+  approach: "hash" # "hash" or "random"
+  hashing_algorithm: "sha256" # "md5", "sha256", "fnv", "murmur", "xxhash"
+  max_char_limit: 6
 
 database:
   host: "127.0.0.1"
