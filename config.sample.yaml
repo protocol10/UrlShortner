@@ -2,9 +2,11 @@ server:
   port: 8080
 
 shortener:
-  approach: "hash" # "hash" or "random"
+  approach: "hash" # "hash", "random", or "counter"
   hashing_algorithm: "sha256" # "md5", "sha256", "fnv", "murmur", "xxhash"
   max_char_limit: 6
+  obfuscation_multiplier: 11400714819323198485
+  obfuscation_xor: 6624835251842065949
 
 database:
   host: "127.0.0.1"
@@ -12,3 +14,9 @@ database:
   user: "your_database_username"
   password: "your_database_password"
   name: "url_shortner_app"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""
+  counter_key: "url_shortener:counter"

@@ -18,6 +18,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
 )
 
 func runMigrations(db *sql.DB) error {
@@ -89,11 +90,28 @@ func main() {
 	// ---------------------------------------------------------
 	// 3. Initialize Strategies and Layers
 	// ---------------------------------------------------------
+	var redisClient shortener.CounterClient
+	if cfg.Shortener.Approach == "counter" {
+		rdb := redis.NewClient(&redis.Options{
+			Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+			Password: cfg.Redis.Password,
+		})
+		if err := rdb.Ping(context.Background()).Err(); err != nil {
+			log.Fatalf("Unable to connect to Redis: %v", err)
+		}
+		log.Println("Redis connection established successfully!")
+		redisClient = shortener.NewRedisCounterAdapter(rdb)
+	}
+
 	// Create Strategy
 	shortenerStrategy, err := shortener.New(shortener.Config{
-		Approach:         cfg.Shortener.Approach,
-		HashingAlgorithm: cfg.Shortener.HashingAlgorithm,
-		MaxCharLimit:     cfg.Shortener.MaxCharLimit,
+		Approach:              cfg.Shortener.Approach,
+		HashingAlgorithm:      cfg.Shortener.HashingAlgorithm,
+		MaxCharLimit:          cfg.Shortener.MaxCharLimit,
+		CounterClient:         redisClient,
+		CounterKey:            cfg.Redis.CounterKey,
+		ObfuscationMultiplier: cfg.Shortener.ObfuscationMultiplier,
+		ObfuscationXOR:        cfg.Shortener.ObfuscationXOR,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize shortener strategy: %v", err)

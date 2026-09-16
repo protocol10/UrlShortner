@@ -17,7 +17,7 @@ func NewRandomShortener(limit int) *RandomShortener {
 	}
 }
 
-func (s *RandomShortener) Shorten(longURL string) (string, error) {
+func (s *RandomShortener) Shorten(_ string) (string, error) {
 	// 1. Generate enough random bytes
 	// We need enough bytes to ensure base62 encoding reaches the charLimit.
 	// 1 byte = max 255 (2 digits in base62). Usually limit bytes is fine.
